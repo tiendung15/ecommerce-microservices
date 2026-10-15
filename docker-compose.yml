@@ -1,0 +1,181 @@
+name: ecommerce-microservices
+
+# Chạy: docker compose up -d --build   |   Dừng: docker compose down   |   Xóa cả dữ liệu: docker compose down -v
+# Chỉ API Gateway mở cổng ra máy host (8080). Các service và database chỉ truy cập được trong mạng nội bộ Docker.
+
+x-pg-env: &pg-env
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+x-pg-health: &pg-health
+  test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+
+x-mongo-health: &mongo-health
+  test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1"]
+  interval: 5s
+  timeout: 10s
+  retries: 12
+
+services:
+  # ======================= HẠ TẦNG =======================
+  auth-db:
+    image: postgres:16-alpine
+    environment: { <<: *pg-env, POSTGRES_DB: auth_db }
+    volumes: [auth-db-data:/var/lib/postgresql/data]
+    healthcheck: *pg-health
+
+  customer-db:
+    image: postgres:16-alpine
+    environment: { <<: *pg-env, POSTGRES_DB: customer_db }
+    volumes: [customer-db-data:/var/lib/postgresql/data]
+    healthcheck: *pg-health
+
+  order-db:
+    image: postgres:16-alpine
+    environment: { <<: *pg-env, POSTGRES_DB: order_db }
+    volumes: [order-db-data:/var/lib/postgresql/data]
+    healthcheck: *pg-health
+
+  product-db:
+    image: mongo:7
+    volumes: [product-db-data:/data/db]
+    healthcheck: *mongo-health
+
+  shipment-db:
+    image: mongo:7
+    volumes: [shipment-db-data:/data/db]
+    healthcheck: *mongo-health
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+
+  kafka-init:
+    image: apache/kafka:3.8.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    volumes: ["./infra/create-kafka-topics.sh:/create-kafka-topics.sh:ro"]
+    entrypoint: ["/bin/sh", "/create-kafka-topics.sh"]
+    restart: "no"
+
+  # ======================= MICROSERVICES =======================
+  auth-service:
+    build: { context: ., dockerfile: services/auth/Dockerfile }
+    environment:
+      PORT: 50051
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@auth-db:5432/auth_db
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
+      STAFF_USERNAME: ${STAFF_USERNAME:-staff}
+      STAFF_PASSWORD: ${STAFF_PASSWORD:-Staff@123}
+    depends_on:
+      auth-db: { condition: service_healthy }
+    restart: on-failure
+
+  customer-service:
+    build: { context: ., dockerfile: services/customer/Dockerfile }
+    environment:
+      PORT: 50052
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@customer-db:5432/customer_db
+    depends_on:
+      customer-db: { condition: service_healthy }
+    restart: on-failure
+
+  product-service:
+    build: { context: ., dockerfile: services/product/Dockerfile }
+    environment:
+      PORT: 50053
+      MONGO_URL: mongodb://product-db:27017
+      MONGO_DB: product_db
+    depends_on:
+      product-db: { condition: service_healthy }
+    restart: on-failure
+
+  order-service:
+    build: { context: ., dockerfile: services/order/Dockerfile }
+    environment:
+      PORT: 50054
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@order-db:5432/order_db
+      CUSTOMER_ADDR: customer-service:50052
+      PRODUCT_ADDR: product-service:50053
+      KAFKA_BROKERS: kafka:9092
+      DISCOUNT_TIERS: ${DISCOUNT_TIERS:-0:0,100:5,500:10,1000:15}
+    depends_on:
+      order-db: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      customer-service: { condition: service_started }
+      product-service: { condition: service_started }
+    restart: on-failure
+
+  shipment-service:
+    build: { context: ., dockerfile: services/shipment/Dockerfile }
+    environment:
+      PORT: 50055
+      MONGO_URL: mongodb://shipment-db:27017
+      MONGO_DB: shipment_db
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      shipment-db: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    restart: on-failure
+
+  # ======================= API GATEWAY =======================
+  gateway:
+    build: { context: ., dockerfile: gateway/Dockerfile }
+    ports: ["8080:8080"]
+    environment:
+      PORT: 8080
+      AUTH_ADDR: auth-service:50051
+      CUSTOMER_ADDR: customer-service:50052
+      PRODUCT_ADDR: product-service:50053
+      ORDER_ADDR: order-service:50054
+      SHIPMENT_ADDR: shipment-service:50055
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_WINDOW_SEC: ${RATE_LIMIT_WINDOW_SEC:-60}
+      CACHE_TTL_SEC: ${CACHE_TTL_SEC:-30}
+    depends_on:
+      redis: { condition: service_healthy }
+      auth-service: { condition: service_started }
+      customer-service: { condition: service_started }
+      product-service: { condition: service_started }
+      order-service: { condition: service_started }
+      shipment-service: { condition: service_started }
+    restart: on-failure
+
+volumes:
+  auth-db-data:
+  customer-db-data:
+  order-db-data:
+  product-db-data:
+  shipment-db-data:

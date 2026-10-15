@@ -1,0 +1,27 @@
+syntax = "proto3";
+package order;
+
+// Hợp đồng gRPC của Order Service (Order Management Bounded Context)
+service OrderService {
+  rpc CreateOrder (CreateOrderRequest) returns (Order);
+  rpc ListOrders (ListOrdersRequest) returns (ListOrdersResponse);
+  rpc GetOrder (GetOrderRequest) returns (Order);
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message OrderItem { int32 pid = 1; int32 qty = 2; double unit_price = 3; }
+message Order {
+  int32 oid = 1;
+  int32 uid = 2;
+  double discount = 3;      // số tiền giảm giá (DECIMAL(10,2) trong ERD)
+  double subtotal = 4;      // tính từ OrderDetail, không lưu
+  double total_amount = 5;  // subtotal - discount, không lưu
+  repeated OrderItem items = 6;
+}
+message OrderSummary { int32 oid = 1; int32 uid = 2; double discount = 3; }
+message CreateOrderRequest { int32 uid = 1; repeated OrderItem items = 2; }
+message ListOrdersRequest { int32 requester_uid = 1; string requester_role = 2; }
+message ListOrdersResponse { repeated OrderSummary items = 1; }
+message GetOrderRequest { int32 oid = 1; int32 requester_uid = 2; string requester_role = 3; }
+message HealthRequest {}
+message HealthResponse { string status = 1; }

@@ -1,0 +1,25 @@
+syntax = "proto3";
+package customer;
+
+// Hợp đồng gRPC của Customer Service (Customer & Membership Bounded Context)
+service CustomerService {
+  rpc CreateCustomer (CreateCustomerRequest) returns (Customer);
+  rpc GetCustomer (GetCustomerRequest) returns (Customer);
+  rpc UpdateCustomer (UpdateCustomerRequest) returns (UpdateCustomerResponse);
+  rpc GetMembership (GetMembershipRequest) returns (Membership);
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message Membership { int32 mid = 1; string mname = 2; int32 score = 3; }
+message Customer { int32 uid = 1; string fullname = 2; int32 mid = 3; Membership membership = 4; }
+message CreateCustomerRequest { int32 uid = 1; string fullname = 2; }
+message GetCustomerRequest { int32 uid = 1; }
+message UpdateCustomerRequest {
+  int32 uid = 1;
+  bool has_fullname = 2; string fullname = 3;
+  bool has_mid = 4; int32 mid = 5;
+}
+message UpdateCustomerResponse { int32 uid = 1; }
+message GetMembershipRequest { int32 mid = 1; }
+message HealthRequest {}
+message HealthResponse { string status = 1; }

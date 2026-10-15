@@ -1,0 +1,17 @@
+syntax = "proto3";
+package shipment;
+
+// Hợp đồng gRPC của Shipment Service (Shipment Bounded Context)
+service ShipmentService {
+  rpc GetShipment (GetShipmentRequest) returns (Shipment);
+  rpc GetShipmentByOrder (GetShipmentByOrderRequest) returns (Shipment);
+  rpc UpdateShipmentStatus (UpdateShipmentStatusRequest) returns (Shipment);
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message Shipment { int32 shipid = 1; int32 oid = 2; string status = 3; }
+message GetShipmentRequest { int32 shipid = 1; int32 requester_uid = 2; string requester_role = 3; }
+message GetShipmentByOrderRequest { int32 oid = 1; int32 requester_uid = 2; string requester_role = 3; }
+message UpdateShipmentStatusRequest { int32 shipid = 1; string status = 2; }
+message HealthRequest {}
+message HealthResponse { string status = 1; }

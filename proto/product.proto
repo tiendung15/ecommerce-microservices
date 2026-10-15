@@ -1,0 +1,36 @@
+syntax = "proto3";
+package product;
+
+// Hợp đồng gRPC của Product Service (Product Catalog Bounded Context)
+service ProductService {
+  rpc ListProducts (ListProductsRequest) returns (ListProductsResponse);
+  rpc GetProduct (GetProductRequest) returns (Product);
+  rpc CreateProduct (CreateProductRequest) returns (Product);
+  rpc UpdateProduct (UpdateProductRequest) returns (UpdateProductResponse);
+  rpc DeleteProduct (GetProductRequest) returns (DeleteProductResponse);
+  // Dùng nội bộ cho Order Service: kiểm tra giá + tồn kho, trừ kho, hoàn kho (bù trừ)
+  rpc GetProductsByIds (GetProductsByIdsRequest) returns (ListProductsResponse);
+  rpc DecreaseStock (StockRequest) returns (StockResponse);
+  rpc IncreaseStock (StockRequest) returns (StockResponse);
+  rpc Health (HealthRequest) returns (HealthResponse);
+}
+
+message Product { int32 pid = 1; string pname = 2; double price = 3; int32 quantity = 4; }
+message ListProductsRequest {}
+message ListProductsResponse { repeated Product items = 1; }
+message GetProductRequest { int32 pid = 1; }
+message CreateProductRequest { string pname = 1; double price = 2; int32 quantity = 3; }
+message UpdateProductRequest {
+  int32 pid = 1;
+  bool has_pname = 2; string pname = 3;
+  bool has_price = 4; double price = 5;
+  bool has_quantity = 6; int32 quantity = 7;
+}
+message UpdateProductResponse { int32 pid = 1; }
+message DeleteProductResponse { int32 pid = 1; }
+message GetProductsByIdsRequest { repeated int32 pids = 1; }
+message StockItem { int32 pid = 1; int32 qty = 2; }
+message StockRequest { repeated StockItem items = 1; }
+message StockResponse { bool success = 1; }
+message HealthRequest {}
+message HealthResponse { string status = 1; }
