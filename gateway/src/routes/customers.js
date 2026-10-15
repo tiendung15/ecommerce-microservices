@@ -24,6 +24,7 @@ router.put('/:uid', wrap(async (req, res) => {
   const b = bodyObject(req);
   const hasFullname = b.fullname !== undefined;
   const hasMid = b.mid !== undefined;
+  if (hasMid && req.user.role !== 'ADMIN') throw new HttpError(403, 'Only admin can change membership');
   if (hasFullname && typeof b.fullname !== 'string') throw new HttpError(400, 'fullname must be a string');
   if (hasMid && !isInt(b.mid)) throw new HttpError(400, 'mid must be an integer');
   const r = await rpc('customer', 'UpdateCustomer', {

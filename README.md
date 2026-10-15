@@ -18,7 +18,7 @@ ecommerce-microservices/
 ├── infra/              # script khởi tạo hạ tầng (tạo topic Kafka)
 ├── tests/e2e.js        # kiểm thử end-to-end ánh xạ 25 test case
 ├── docker-compose.yml
-├── .env.example
+├── .env
 └── .gitignore
 ```
 Mỗi service chia lớp DDD: `domain/` (luật nghiệp vụ) → `application/` (use case) → `infrastructure/` (DB, Kafka, gRPC client) → `interfaces/` (gRPC handler, Kafka consumer).
@@ -33,7 +33,7 @@ Mỗi service chia lớp DDD: `domain/` (luật nghiệp vụ) → `application/
 ## 3. Chạy
 
 ```bash
-cp .env.example .env        # không bắt buộc, compose đã có giá trị mặc định
+# file .env có sẵn (giá trị dev), docker compose tự đọc, có thể sửa tùy ý
 docker compose up -d --build
 docker compose ps           # đợi các service Up (lần đầu kéo image Kafka, build khá lâu)
 curl localhost:8080/api/health
@@ -70,7 +70,7 @@ docker compose exec shipment-db mongosh shipment_db --quiet --eval "db.shipments
 | API ID | Endpoint | Ai gọi được |
 |---|---|---|
 | API-AUTH-01/02 | `POST /api/auth/register`, `/login` | Public |
-| API-CUS-01/02 | `GET/PUT /api/customers/:uid` | Chính chủ hoặc ADMIN |
+| API-CUS-01/02 | `GET/PUT /api/customers/:uid` | Chính chủ hoặc ADMIN (đổi `mid` chỉ ADMIN) |
 | API-PRO-01/02 | `GET /api/products`, `/:pid` | Đã đăng nhập |
 | API-PRO-03/04/05 | `POST/PUT/DELETE /api/products` | ADMIN |
 | API-ORD-01 | `POST /api/orders` | Đã đăng nhập |
@@ -91,10 +91,9 @@ Lỗi trả dạng `{"message": "..."}` với mã 400/401/403/404/409/429/503 đ
 6. **Phản hồi `POST /api/orders`**: spec mẫu có `shipment.shipid`, nhưng Shipment tạo bất đồng bộ (sơ đồ + ghi chú API) nên lúc trả về chưa có `shipid`. Response trả `shipment: {status: "PENDING"}`; `shipid` xem ở `GET /api/orders/:oid`. Có thêm `subtotal`, `total_amount` (sơ đồ luồng chính có `total_amount`).
 7. **`GET /api/customers/:uid`** trả thêm `membership {mid, mname, score}` để đáp ứng TC-CUS-04.
 8. **Shipment lưu thêm `uid`** (lấy từ event OrderCreated) để kiểm tra quyền xem; ERD chỉ có `shipid, oid, status`. Trạng thái hợp lệ: PENDING, SHIPPING, DELIVERED, CANCELLED, chưa ràng buộc thứ tự chuyển.
-9. **Validation tự đặt**: password ≥ 6 ký tự; Admin hay chính khách đều có thể đổi `mid` qua `PUT /api/customers/:uid` (đúng spec nhưng khách có thể tự nâng hạng để được giảm giá nhiều hơn). Nên cân nhắc chỉ cho ADMIN đổi `mid` nếu muốn chặt hơn.
+9. **Validation tự đặt**: password ≥ 6 ký tự. Chỉ ADMIN được đổi `mid` qua `PUT /api/customers/:uid` (khách đổi `mid` bị 403) để khách không tự nâng hạng nhằm được giảm giá nhiều hơn; khách vẫn tự sửa `fullname` được.
 10. **Chưa có**: pagination, refresh token, thu hồi token, HTTPS, Kafka health trong `/api/health`.
 
 ## 7. Đã kiểm chứng gì, chưa kiểm chứng gì
 
-Đã chạy thật (PostgreSQL + Redis, Node 22): auth, customer, order, gateway cùng `tests/e2e.js` → 40/40 PASS; unit test discount, validator, shipment; rate limit trả 429.
-**Chưa chạy được ở môi trường phát triển** (không có Docker, MongoDB, Kafka): `docker-compose.yml`, Dockerfile, kết nối MongoDB thật, kết nối Kafka thật. Khi chạy, Product và Shipment được kiểm tra bằng logic service thật với repository in-memory, "Kafka" được mô phỏng bằng cách đọc bảng outbox. Vì vậy lần chạy `docker compose up` đầu tiên là phép thử thật cho các phần này.
+Đã chạy thật bằng `docker compose up -d --build` (3 PostgreSQL, 2 MongoDB, Redis, Kafka, 5 service, gateway): `node tests/e2e.js` → 40/40 PASS. Hai case Kafka chạy tay đều đạt: TC-SHP-02 (event thiếu oid → ghi vào `failed_events`) và TC-SHP-05 (cùng event 2 lần → chỉ 1 Shipment). Đã kiểm tra khách đổi `mid` bị 403, khách sửa `fullname` được 200. Unit test (discount, validator, shipment status) chạy bằng `node --test`.
