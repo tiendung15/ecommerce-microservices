@@ -18,7 +18,7 @@ ecommerce-microservices/
 ├── infra/              # script khởi tạo hạ tầng (tạo topic Kafka)
 ├── tests/e2e.js        # kiểm thử end-to-end ánh xạ 25 test case
 ├── docker-compose.yml
-├── .env
+├── .env (local, ignored by Git)
 └── .gitignore
 ```
 Mỗi service chia lớp DDD: `domain/` (luật nghiệp vụ) → `application/` (use case) → `infrastructure/` (DB, Kafka, gRPC client) → `interfaces/` (gRPC handler, Kafka consumer).
@@ -33,10 +33,10 @@ Mỗi service chia lớp DDD: `domain/` (luật nghiệp vụ) → `application/
 ## 3. Chạy
 
 ```bash
-# file .env có sẵn (giá trị dev), docker compose tự đọc, có thể sửa tùy ý
+# Tạo file .env ở thư mục gốc và điền các biến môi trường cần thiết
 docker compose up -d --build
 docker compose ps           # đợi các service Up (lần đầu kéo image Kafka, build khá lâu)
-curl localhost:8080/api/health
+curl localhost:3003/api/health
 node tests/e2e.js           # cần Node >= 18 trên máy host
 ```
 Tài khoản mặc định (tạo lúc Auth Service khởi động, chỉ dùng cho dev): `admin / Admin@123` (ADMIN), `staff / Staff@123` (SHIPMENT_STAFF).
@@ -47,7 +47,7 @@ Dừng: `docker compose down` (thêm `-v` để xóa dữ liệu).
 | Bước | Nội dung | Kiểm tra |
 |---|---|---|
 | 1 | Hạ tầng: 3 Postgres, 2 Mongo, Redis, Kafka, topic | `docker compose ps` → tất cả Up/healthy; `kafka-init` Exited (0) |
-| 2 | Auth: đăng ký, đăng nhập, JWT | `curl -X POST localhost:8080/api/auth/register -H 'Content-Type: application/json' -d '{"username":"john","password":"P@ss123"}'` → 201 |
+| 2 | Auth: đăng ký, đăng nhập, JWT | `curl -X POST localhost:3003/api/auth/register -H 'Content-Type: application/json' -d '{"username":"john","password":"P@ss123"}'` → 201 |
 | 3 | Customer + Membership | Đăng nhập rồi `GET /api/customers/{uid}` → có `mid`, `membership.score` |
 | 4 | Product (Admin CRUD) | Đăng nhập `admin`, `POST /api/products` → 201 |
 | 5 | Order: discount, trừ kho, Outbox | `POST /api/orders` → 201, tồn kho giảm; `docker compose exec order-db psql -U postgres order_db -c "select id,status from outbox_events"` |
@@ -97,3 +97,4 @@ Lỗi trả dạng `{"message": "..."}` với mã 400/401/403/404/409/429/503 đ
 ## 7. Đã kiểm chứng gì, chưa kiểm chứng gì
 
 Đã chạy thật bằng `docker compose up -d --build` (3 PostgreSQL, 2 MongoDB, Redis, Kafka, 5 service, gateway): `node tests/e2e.js` → 40/40 PASS. Hai case Kafka chạy tay đều đạt: TC-SHP-02 (event thiếu oid → ghi vào `failed_events`) và TC-SHP-05 (cùng event 2 lần → chỉ 1 Shipment). Đã kiểm tra khách đổi `mid` bị 403, khách sửa `fullname` được 200. Unit test (discount, validator, shipment status) chạy bằng `node --test`.
+
